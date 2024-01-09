@@ -1,0 +1,80 @@
+# Configure independent python environment and run tests for each version provided.
+# Requires secrets: ARTIFACTORY_USER, ARTIFACTORY_PWD and SONAR_TOKEN.
+
+name: 'Run Tests'
+
+on:
+  workflow_call:
+    inputs:
+      python-versions:
+        description: 'Python versions to use in JSON string format.'
+        required: false
+        type: string
+        default: "['3.9','3.10','3.11']"
+      default-version:
+        description: 'Default Python version supported.'
+        required: false
+        type: string
+        default: '3.9'
+      sources:
+        description: 'Comma separated list of paths to run code quality.'
+        required: false
+        type: string
+        default: 'src'
+      test-optional-dependencies:
+        description: 'Test optional dependencies to install.'
+        required: false
+        type: string
+        default: '".[dev]"'
+    secrets:
+      ARTIFACTORY_USER:
+        description: 'Artifactory user.'
+        required: true
+      ARTIFACTORY_PWD:
+        description: 'Artifactory password.'
+        required: true
+      SONAR_TOKEN:
+        description: 'SonarQube token.'
+        required: false
+
+jobs:
+  run-test:
+    name: Run Tests ${{ matrix.python-version }}
+    runs-on: [ self-hosted, Linux ]
+    strategy:
+      matrix:
+        python-version: ${{ fromJson(inputs.python-versions) }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Configure
+        run: |
+          git config --global user.name "pylibtemplate"
+          git config --global user.email "pylibtemplate@data-enablers.com"
+          pip config --user set global.extra-index-url "https://${{ secrets.ARTIFACTORY_USER }}:${{ secrets.ARTIFACTORY_PWD }}@artifactory.mpi-internal.com/artifactory/api/pypi/pypi-local/simple"
+
+      - name: Install Development Project Dependencies
+        run: pip install -e ${{ inputs.test-optional-dependencies }}
+
+      - name: Run tests
+        run: pytest . --cov
+
+      - name: Run Code Quality
+        uses: common-platform/code-quality-action@v1.3.0
+        if: matrix.python-version == inputs.default-version
+        with:
+          language: python
+          sources-path: ${{ inputs.sources }}
+          test-reports-path: 'coverage.xml'
+        env:
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_PWD: ${{ secrets.ARTIFACTORY_PWD }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+

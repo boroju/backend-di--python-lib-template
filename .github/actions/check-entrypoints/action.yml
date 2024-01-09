@@ -1,0 +1,20 @@
+name: 'Check entrypoints'
+description: 'Check if the python build was generate `entrypoints` in the wheel file.'
+runs:
+  using: 'composite'
+  steps:
+    - name: 'Check Entrypoints in egg'
+      shell: bash
+      run: |
+        if stat *.egg-info/entry_points.txt &> /dev/null;
+        then
+          echo "Entrypoints file exists";
+          EP="$(cat *.egg-info/entry_points.txt | grep '=')";
+          echo "Detected "$(echo "$EP" | wc -l)" entrypoints.";
+          echo "$EP";
+          if [[ -z $EP ]]
+          then
+            echo "No entrypoints detected.";
+            exit 1;
+          fi
+        fi

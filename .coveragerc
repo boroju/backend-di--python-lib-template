@@ -1,0 +1,8 @@
+[run]
+relative_files = True
+branch = True
+omit = test integration_test
+
+[report]
+fail_under = 10
+skip_empty = True

@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "backend-di--python-lib-template"
+version = "1.0.0"
+description = "Python repository template to easily publish a new library in Artifactory."
+authors = ["Julian Boronat <boronat.j.e@gmail.com>"]
+readme = "docs/README.md"
+
+
+[tool.poetry.dependencies]
+python = ">=3.8,<4"
+aiohttp = ">=3.8,<4.0"
+boto3 = ">=1.33.2,<2.0"
+
+
+[[tool.poetry.source]]
+name = "artifactory"
+url = "https://artifactory.mpi-internal.com/artifactory/api/pypi/pypi-virtual/simple"
+secondary = true
+
+
+[tool.poetry.dev-dependencies]
+pytest = "^6.2.4"
+pytest-mock = "3.10.0"
+GitPython = ">=3.1,<4.0"
+pre-commit = ">=3.3"
+
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

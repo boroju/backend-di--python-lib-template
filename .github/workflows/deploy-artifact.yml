@@ -1,0 +1,172 @@
+name: Deploy Artifact Workflow
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        description: 'The Python version to use in the CI/CD (default 3.9).'
+        default: '3.9'
+      slack-notification-username:
+        required: true
+        type: string
+        description: 'The username to use in the Slack notification send.'
+      slack-notification-icon:
+        required: false
+        type: string
+        description: 'The username to use in the Slack notification send.'
+        default: ":python:"
+      slack-notification-channel:
+        required: false
+        type: string
+        description: 'The channel to send the Slack notification.'
+        default: "C019FCPH2GY"
+      validate-wheel-entrypoints:
+        required: false
+        type: boolean
+        description: 'Validate if the wheel almost contains 1 entrypoint.'
+        default: true
+      dry-run:
+        required: false
+        type: string
+        default: true
+        description: 'If true, the python wheel will be not deployed to artifactory and documentation will not pushed.'
+    secrets:
+      ARTIFACTORY_USER:
+        required: true
+        description: 'JFrog Artifactory user.'
+      ARTIFACTORY_PWD:
+        required: true
+        description: 'JFrog Artifactory password.'
+      SLACK_TOKEN:
+        required: true
+        description: 'Slack token.'
+      SONAR_TOKEN:
+        required: false
+        description: 'SonarQube token.'
+      SONAR_HOST:
+        required: false
+        description: 'SonarQube host.'
+
+permissions:
+  contents: write
+  repository-projects: write
+
+jobs:
+  deploy_artifact:
+    name: "Deploy Artifact"
+    runs-on: [ self-hosted, Linux ]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: 'Check what are changed'
+        id: changed-files
+        uses: tj-actions/changed-files@v36
+        with:
+          files_yaml: |
+            doc:
+              - 'docs/**'
+            code:
+              - '**/**.{py,pyi,yml,json}'
+          files_ignore: |
+            test/**
+
+      - name: Set up Python ${{ inputs.python-version }}
+        if: |
+          steps.changed-files.outputs.code_any_changed == 'true' ||
+          steps.changed-files.outputs.doc_any_changed == 'true'
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Configure Git
+        if: |
+          steps.changed-files.outputs.code_any_changed == 'true' ||
+          steps.changed-files.outputs.doc_any_changed == 'true'
+        run: |
+          if [[ '${{ github.event_name }}' == 'push' ]]; then git checkout $GITHUB_REF_NAME; else git checkout $GITHUB_HEAD_REF; fi
+          git config --global user.name "pylibtemplate"
+          git config --global user.email "pylibtemplate@data-enablers.com"
+          git remote set-url origin "https://${{ secrets.GITHUB_TOKEN }}@github.mpi-internal.com/${GITHUB_REPOSITORY}.git"
+
+      - name: Configure PIP
+        if: |
+          steps.changed-files.outputs.code_any_changed == 'true' ||
+          steps.changed-files.outputs.doc_any_changed == 'true'
+        run: pip config --user set global.extra-index-url "https://${{ secrets.ARTIFACTORY_USER }}:${{ secrets.ARTIFACTORY_PWD }}@artifactory.mpi-internal.com/artifactory/api/pypi/pypi-local/simple"
+
+      - name: Install dependencies
+        if: |
+          steps.changed-files.outputs.code_any_changed == 'true' ||
+          steps.changed-files.outputs.doc_any_changed == 'true'
+        run: python configure_local.py
+
+      - name: 'Tests and Code Quality'
+        if: |
+          steps.changed-files.outputs.code_any_changed == 'true' &&
+          !contains(github.event.head_commit.message, '[docs]')
+        uses: scmspain/backend-di--python-lib-template/.github/actions/tests-and-quality@master
+        env:
+          ARTIFACTORY_USER: ${{ secrets.ARTIFACTORY_USER }}
+          ARTIFACTORY_PWD: ${{ secrets.ARTIFACTORY_PWD }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+
+      - name: Increment Version
+        if: |
+          steps.changed-files.outputs.code_any_changed == 'true' &&
+          !contains(github.event.head_commit.message, '[docs]')
+        run: python setup.py increment_version
+
+      - name: Build Package
+        if: |
+          steps.changed-files.outputs.code_any_changed == 'true' &&
+          !contains(github.event.head_commit.message, '[docs]')
+        run: python setup.py bdist_wheel
+
+      - name: Publish Package to Artifactory
+        if: |
+          steps.changed-files.outputs.code_any_changed == 'true' &&
+          github.event_name == 'push' &&
+          !contains(github.event.head_commit.message, '[docs]')
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: ${{ secrets.ARTIFACTORY_USER }}
+          password: ${{ secrets.ARTIFACTORY_PWD }}
+          repository-url: https://artifactory.mpi-internal.com/artifactory/api/pypi/pypi-local
+
+      - name: 'Send Deploy Notification'
+        uses: scmspain/backend-di--python-lib-template/.github/actions/send-deploy-notification@master
+        if: |
+          steps.changed-files.outputs.code_any_changed == 'true' &&
+          github.event_name == 'push' &&
+          !contains(github.event.head_commit.message, '[docs]')
+        with:
+          username: ${{ inputs.slack-notification-username }}
+          icon: ${{ inputs.slack-notification-icon }}
+          token: "${{ secrets.SLACK_TOKEN }}"
+          channel: ${{ inputs.slack-notification-channel }}
+
+      - name: Push Documentation
+        if: |
+          (
+          steps.changed-files.outputs.code_any_changed == 'true' ||
+          steps.changed-files.outputs.doc_any_changed == 'true'
+          ) &&
+          github.event_name == 'push'
+        run: git push -f --tags origin $GITHUB_REF_NAME
+        env:
+          SKIP: "no-commit-to-branch"
+
+      - name: 'Send Docs Notification'
+        uses: scmspain/backend-di--python-lib-template/.github/actions/send-deploy-notification@master
+        if: contains(github.event.head_commit.message, '[docs]')
+        with:
+          username: ${{ inputs.slack-notification-username }}
+          icon: ${{ inputs.slack-notification-icon }}
+          token: "${{ secrets.SLACK_TOKEN }}"
+          channel: ${{ inputs.slack-notification-channel }}
+          message: "<https://docs.mpi-internal.com/${{ github.repository }}|${{ github.repository }}> docs updated successfully by *${{ github.actor }}*."
