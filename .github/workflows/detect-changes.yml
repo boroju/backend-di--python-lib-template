@@ -1,0 +1,52 @@
+#  Detect what kind of files are changed based on file patterns.
+#  Actually detects 4 types of changes, based on the patterns:
+#    - code: any file that matches the pattern: src/**.{py}.
+#    - docs: any file that matches the pattern: docs/**.
+#
+#  All these patterns are configurable using input parameters.
+
+name: 'Detect Changes based on file patterns'
+
+on:
+  workflow_call:
+    inputs:
+      code-patterns:
+        description: 'Patterns to detect code changes.'
+        required: false
+        type: string
+        default: |
+          - src/**/**.{py}
+      docs-patterns:
+        description: 'Patterns to detect docs changes.'
+        required: false
+        type: string
+        default: |
+          - docs/**
+    outputs:
+      code:
+        description: 'True if any code file changed.'
+        value: ${{ jobs.detect-changes.outputs.code }}
+      docs:
+        description: 'True if any docs file changed.'
+        value: ${{ jobs.detect-changes.outputs.docs }}
+
+jobs:
+  detect-changes:
+    name: 'Detect Changes'
+    runs-on: [ self-hosted, Linux ]
+    outputs:
+      code: ${{ steps.changed-files.outputs.code_any_changed }}
+      docs: ${{ steps.changed-files.outputs.docs_any_changed }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: 'Detect changes'
+        id: changed-files
+        uses: tj-actions/changed-files@v40
+        with:
+          files_yaml: |
+            docs:
+            ${{inputs.docs-patterns}}
+            code:
+            ${{inputs.code-patterns}}

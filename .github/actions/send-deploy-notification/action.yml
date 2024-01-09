@@ -1,0 +1,75 @@
+name: 'Send Deploy Notification'
+description: 'Send a slack notification to `es-di-deploys` channel with standard format.'
+inputs:
+  channel:
+    description: "Alternative Channel to notify the deploy."
+    required: false
+    default: "C019FCPH2GY"
+  username:
+    description: "The name used to send slack message."
+    required: false
+    default: "Deployer Bot"
+  icon:
+    description: "The icon to use by bot avatar in the message."
+    required: false
+    default: ":robot_face:"
+  token:
+    description: "Slack token to use by the API."
+    required: true
+  message:
+    description: "The message body to send."
+    required: false
+runs:
+  using: 'composite'
+  steps:
+    - name: Get Deployment Information
+      shell: bash
+      if: inputs.message == ''
+      run: |
+        # Selects a random number to use as delimiter.
+        EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+        echo "MESSAGE<<$EOF" >> $GITHUB_ENV
+        echo "Version: \`$(git tag -n1 | grep $(git describe --tags --abbrev=0) | sed -E 's/[ ]{2,}/ - /g')\`.
+        Package: \`$(find dist/ -iname '*.whl' | head -n 1 | sed 's/dist\///g')\`.
+        Author: *${{ github.actor }}*.
+        Changes:
+        \`\`\`$(git log -1 | tail -n +5 | sed 's/^[ ]\+//g')\`\`\`" >> $GITHUB_ENV
+        echo "$EOF" >> $GITHUB_ENV
+
+    - name: Set Message
+      shell: bash
+      if: inputs.message != ''
+      run: |
+        # Selects a random number to use as delimiter.
+        EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+        echo "MESSAGE<<$EOF" >> $GITHUB_ENV
+        echo "${{ inputs.message }}" >> $GITHUB_ENV
+        echo "$EOF" >> $GITHUB_ENV
+
+    - name: 'Send Slack Message'
+      shell: bash
+      env:
+        SLACK_MESSAGE: |
+          {
+            "channel": "${{ inputs.channel }}",
+            "username": "${{ inputs.username }}",
+            "icon_emoji": "${{ inputs.icon }}",
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "${{ env.MESSAGE }}"
+                }
+              },
+              {
+                "type": "divider"
+              }
+            ]
+          }
+      run: |
+        curl \
+        -H "Content-type: application/json" \
+        --data '${{ env.SLACK_MESSAGE }}' \
+        -H "Authorization: Bearer ${{ inputs.token }}" \
+        -X POST https://slack.com/api/chat.postMessage | jq

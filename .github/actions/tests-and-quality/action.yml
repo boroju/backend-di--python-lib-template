@@ -1,0 +1,29 @@
+name: 'Run tests and Code Quality'
+description: 'Run pytest and the code quality to send to sonarqube (optional).'
+
+inputs:
+  ARTIFACTORY_USER:
+    required: true
+    description: 'JFrog Artifactory user.'
+  ARTIFACTORY_PWD:
+    required: true
+    description: 'JFrog Artifactory password.'
+  SONAR_TOKEN:
+    required: false
+    description: 'SonarQube token.'
+  SONAR_HOST:
+    required: false
+    description: 'SonarQube host.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run tests
+      shell: bash
+      run: pytest
+
+    - name: Run Code Quality
+      uses: common-platform/code-quality-action@master
+      if: env.SONAR_TOKEN != ''  && env.SONAR_HOST != ''
+      with:
+        language: python
